@@ -9,6 +9,12 @@
     url = "https://ffmpeg.org/releases/ffmpeg-6.0.tar.xz";
     sha256 = "57be87c22d9b49c112b6d24bc67d42508660e6b718b3db89c44e47e289137082";
   };
+  # The `hdr` flavor needs mpv 0.42, which requires FFmpeg >= 6.1.
+  ffmpegHdr = {
+    version = "8.0.3";
+    url = "https://ffmpeg.org/releases/ffmpeg-8.0.3.tar.xz";
+    sha256 = "6136812ea6d4e68bdba27e33c2a94382711cdf4f8602ffef056ff792bd6f9818";
+  };
   fftools-ffi = {
     version = "9b0d4da0";
     url = "https://github.com/moffatman/fftools-ffi/archive/9b0d4da026d9c830702ec043c1f1f98d407025af.tar.gz";
@@ -38,6 +44,11 @@
     version = "1.3.5";
     url = "https://github.com/xiph/ogg/releases/download/v1.3.5/libogg-1.3.5.tar.gz";
     sha256 = "0eb4b4b9420a0f51db142ba3f9c64b333f826532dc0f48c6410ae51f4799b664";
+  };
+  libplacebo = {
+    version = "7.387.0";
+    url = "https://github.com/haasn/libplacebo/archive/refs/tags/v7.387.0.tar.gz";
+    sha256 = "f9e62d3774a9c4cfd198ec3abaa88294aaade2e31c04d5ab02bcf4abc98b1df5";
   };
   libpng = {
     version = "1.6.40";
@@ -74,10 +85,67 @@
     url = "https://github.com/Mbed-TLS/mbedtls/archive/refs/tags/v3.4.1.tar.gz";
     sha256 = "a420fcf7103e54e775c383e3751729b8fb2dcd087f6165befd13f28315f754f5";
   };
+  # MoltenVK and the dependencies its CMake build would otherwise fetch with
+  # CPM. Revisions are the ones in MoltenVK's `ExternalRevisions/`.
+  moltenvk = {
+    version = "1.4.2";
+    url = "https://github.com/KhronosGroup/MoltenVK/archive/refs/tags/v1.4.2.tar.gz";
+    sha256 = "6864db532f1dbbdb621a8d0ec13f24edae318fd9269dd3dd0cdff791334bb1cb";
+  };
+  moltenvkCereal = {
+    version = "a56bad8b";
+    url = "https://github.com/USCiLab/cereal/archive/a56bad8bbb770ee266e930c95d37fff2a5be7fea.tar.gz";
+    sha256 = "12e10fb541270632f6683286ce8c7e8c321fe4addb53fa91ed498b95c1758f93";
+  };
+  moltenvkCpm = {
+    version = "0.40.8";
+    url = "https://github.com/cpm-cmake/CPM.cmake/releases/download/v0.40.8/CPM.cmake";
+    sha256 = "78ba32abdf798bc616bab7c73aac32a17bbd7b06ad9e26a6add69de8f3ae4791";
+  };
+  moltenvkSpirvCross = {
+    version = "6c09849f";
+    url = "https://github.com/KhronosGroup/SPIRV-Cross/archive/6c09849fe88c48eaed08413aa022aaa136a3a057.tar.gz";
+    sha256 = "b81b9956289950570953738e666a031ca32ff64e4fc925eba89f227c42109518";
+  };
+  # Vulkan 1.4.357. Also the headers and registry libplacebo and mpv build
+  # against, so all three agree on one Vulkan API version.
+  moltenvkVulkanHeaders = {
+    version = "1.4.357";
+    url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/e3b1eec08173d6b825cd3ac88c885a63b621504a.tar.gz";
+    sha256 = "f492279345cbc10708b64fcd432b3ff6c8246a5837c4db2b649abba00cf82208";
+  };
   mpv = {
     version = "0.36.0";
     url = "https://github.com/mpv-player/mpv/archive/refs/tags/v0.36.0.tar.gz";
     sha256 = "29abc44f8ebee013bb2f9fe14d80b30db19b534c679056e4851ceadf5a5e8bf6";
+  };
+  # The `hdr` flavor: vo=gpu-next on macOS (Vulkan through MoltenVK) with
+  # libplacebo 7.387 needs mpv >= 0.42.
+  mpvHdr = {
+    version = "0.42.0";
+    url = "https://github.com/mpv-player/mpv/archive/refs/tags/v0.42.0.tar.gz";
+    sha256 = "bcfebbfa2b65a6d88dc97ea18117831072373e38b5785a2afb874ed4df5070dd";
+  };
+  # shaderc and the dependencies listed in its `DEPS` file.
+  shaderc = {
+    version = "2026.4";
+    url = "https://github.com/google/shaderc/archive/refs/tags/v2026.4.tar.gz";
+    sha256 = "f06ce5bcca94e5df7f34e115743597d0ad2e13c5fe9213c67dc8c76031241947";
+  };
+  shadercGlslang = {
+    version = "e1b562a8";
+    url = "https://github.com/KhronosGroup/glslang/archive/e1b562a8bed273a02f30b59b66a5d499793cede5.tar.gz";
+    sha256 = "907174a24713c6202c146f164bf81783f1fbc79c8cb821a30f18f159eb980312";
+  };
+  shadercSpirvHeaders = {
+    version = "04fd3caa";
+    url = "https://github.com/KhronosGroup/SPIRV-Headers/archive/04fd3caa1e8267e4d95c806cad901181728e1006.tar.gz";
+    sha256 = "392f4801409aad9c4f1b77745f179952fd6264e4c8bd0fc1bc45dfa6807bf6d0";
+  };
+  shadercSpirvTools = {
+    version = "ef96ed76";
+    url = "https://github.com/KhronosGroup/SPIRV-Tools/archive/ef96ed763b43b59b33b31b362f09a02b729fa1c9.tar.gz";
+    sha256 = "82c62146083fd558735a3171cf97cfc47903ca7d368482e87f94bd44883c0f00";
   };
   uchardet = {
     version = "0.0.8";

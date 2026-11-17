@@ -50,6 +50,8 @@ if arch != archs.universal then
     libpng = callPackage ../mk-pkg-libpng/default.nix { };
     libvpx = callPackage ../mk-pkg-libvpx/default.nix { };
     libx264 = callPackage ../mk-pkg-libx264/default.nix { };
+    libplacebo = callPackage ../mk-pkg-libplacebo/default.nix { };
+    moltenvk = callPackage ../mk-pkg-moltenvk/default.nix { };
 
     deps =
       [
@@ -75,6 +77,11 @@ if arch != archs.universal then
       ++ pkgs.lib.optionals (variant == variants.video && flavor == flavors.encodersgpl) [
         libvpx
         libx264
+      ]
+      # shaderc is linked statically into libplacebo
+      ++ pkgs.lib.optionals (variant == variants.video && flavor == flavors.hdr) [
+        libplacebo
+        moltenvk
       ];
   in
   pkgs.stdenvNoCC.mkDerivation {

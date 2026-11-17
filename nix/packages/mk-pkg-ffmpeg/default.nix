@@ -8,10 +8,12 @@
 
 let
   name = "ffmpeg";
-  packageLock = (import ../../../packages.lock.nix).${name};
+  flavors = import ../../utils/constants/flavors.nix;
+  # mpv 0.42, which the `hdr` flavor builds, needs a newer FFmpeg
+  packageLock =
+    (import ../../../packages.lock.nix).${if flavor == flavors.hdr then "ffmpegHdr" else name};
   inherit (packageLock) version;
 
-  flavors = import ../../utils/constants/flavors.nix;
   variants = import ../../utils/constants/variants.nix;
   callPackage = pkgs.lib.callPackageWith {
     inherit

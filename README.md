@@ -7,6 +7,32 @@ with commercial use for playback, and GPL use for encoding.
 Heavily inspired by [Homebrew](https://github.com/Homebrew/brew) and
 [IINA](https://github.com/iina/iina).
 
+## This fork: the `video-hdr` variant
+
+`getmydia/libmpv-darwin-build` adds one flavor, `hdr`, built for macOS video
+only (`macos-universal-video-hdr`). It holds everything `video-default` holds,
+plus what mpv's `vo=gpu-next` needs on Vulkan, for HDR output in EDR:
+
+- mpv 0.42.0 (`gpu-context=macvk`, `videotoolbox-pl`), with FFmpeg 8.0.3, which
+  it requires. The other flavors keep upstream's mpv 0.36.0 and FFmpeg 6.0.
+- libplacebo 7.387.0 (`Placebo.framework`), Vulkan only, with Dolby Vision
+  reshaping.
+- shaderc 2026.4, linked statically into libplacebo for runtime shader
+  compilation.
+- MoltenVK 1.4.2 (`MoltenVK.framework`), built from source with its CMake
+  build. There is no Vulkan loader: libplacebo and mpv link MoltenVK directly,
+  so nothing depends on an ICD manifest at runtime.
+
+The `hdr` packages target macOS 12.0. The flavor stays within the licensing of
+`video-default`: libplacebo is LGPL, shaderc and MoltenVK are Apache-2.0, and
+mpv is built with `-Dgpl=false`.
+
+```shell
+$ nix develop -c make TARGET=mk-out-archive-xcframeworks-macos-universal-video-hdr
+```
+
+This fork's CI builds only that target.
+
 ## Setup
 
 - Nix: [nixos.org/download/#nix-install-macos](https://nixos.org/download/#nix-install-macos)

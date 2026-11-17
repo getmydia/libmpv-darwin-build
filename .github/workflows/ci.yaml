@@ -4,11 +4,19 @@ on:
   push:
     branches:
       - main
+      - "mydia/**"
     tags:
       - "*"
   pull_request:
     branches:
       - "*"
+  workflow_dispatch:
+
+# This fork (getmydia/libmpv-darwin-build) builds and releases only the
+# `video-hdr` variant for macOS. The upstream variants are still built by a
+# plain `make` without TARGET.
+env:
+  TARGET: mk-out-archive-xcframeworks-macos-universal-video-hdr
 
 jobs:
   ci:
@@ -68,11 +76,49 @@ jobs:
           XCODE_PATH: ${{ steps.xcode_path.outputs.xcode_path }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          nix develop -c make XCODE_PATH=${XCODE_PATH} VERSION=${VERSION}
+          nix develop -c make XCODE_PATH=${XCODE_PATH} VERSION=${VERSION} TARGET=${TARGET}
+
+      # MoltenVK must be linked directly (no Vulkan loader), and every
+      # framework may only depend on the system or on its sibling frameworks.
+      - name: Verify video-hdr frameworks
+        run: |
+          # no pipefail: `grep -q` closing the pipe early must not fail a check
+          set -eu
+          DIR=$(mktemp -d)
+          tar -xzf result/libmpv-xcframeworks_*_macos-universal-video-hdr.tar.gz -C "${DIR}"
+          cd "${DIR}"/*/
+
+          for NAME in Mpv Placebo MoltenVK Avcodec; do
+            test -d "${NAME}.xcframework" || { echo "missing ${NAME}.xcframework"; exit 1; }
+          done
+
+          for BIN in */macos-*/*.framework/Versions/A/*; do
+            [ -f "${BIN}" ] || continue
+            echo "== ${BIN}"
+            lipo -archs "${BIN}"
+            otool -L "${BIN}"
+            # dependency lines are indented, per-arch headers are not
+            if otool -L "${BIN}" | grep -E '^\s' | grep -v -E '^\s+(/usr/lib/|/System/Library/|@rpath/[A-Za-z0-9_]+\.framework/)'; then
+              echo "unexpected dependency in ${BIN}"
+              exit 1
+            fi
+          done
+
+          MPV=$(echo Mpv.xcframework/macos-*/Mpv.framework/Versions/A/Mpv)
+          if otool -L "${MPV}" | grep -i vulkan; then
+            echo "Mpv links a Vulkan loader"
+            exit 1
+          fi
+          nm -m "${MPV}" | grep '_vkCreateMetalSurfaceEXT'
+          nm -m "${MPV}" | grep -q '(undefined) external _vkCreateMetalSurfaceEXT (from MoltenVK)'
+          nm -gU MoltenVK.xcframework/macos-*/MoltenVK.framework/Versions/A/MoltenVK | grep -q '_vkCreateMetalSurfaceEXT$'
+          nm -m Placebo.xcframework/macos-*/Placebo.framework/Versions/A/Placebo | grep -q '(from MoltenVK)'
+          strings "${MPV}" | grep -E '^mpv ' | sort -u
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
+          name: libmpv-macos-universal-video-hdr
           if-no-files-found: error
           path: |
             result/*.tar.gz

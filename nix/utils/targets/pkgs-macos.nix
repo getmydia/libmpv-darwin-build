@@ -1,0 +1,16 @@
+# Package targets for the packages only the `hdr` flavor uses, which is built
+# for macOS only.
+let
+  oses = import ../constants/oses.nix;
+  archs = import ../constants/archs.nix;
+in
+[
+  {
+    os = oses.macos;
+    arch = archs.arm64;
+  }
+  {
+    os = oses.macos;
+    arch = archs.amd64;
+  }
+]

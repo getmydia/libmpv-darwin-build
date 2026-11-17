@@ -309,7 +309,9 @@ if variant == 'video'
 endif
 
 # components
-if flavor == 'default'
+# `hdr` ships the same FFmpeg components as `default`; only mpv's video output
+# and the FFmpeg version differ.
+if flavor == 'default' or flavor == 'hdr'
     options += audio_default_options
     if variant == 'video'
         options += video_default_options

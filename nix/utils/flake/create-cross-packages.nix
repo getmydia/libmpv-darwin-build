@@ -11,6 +11,7 @@ let
   };
   variants = import ../default/variants.nix;
   flavors = import ../default/flavors.nix;
+  flavorSupported = import ../flavor/supported.nix;
   crossPackagesMap = builtins.concatMap (
     packageName:
     let
@@ -46,7 +47,7 @@ let
               }
               // (if supportsFormat then { inherit format; } else { })
             ))
-          ) flavors
+          ) (builtins.filter (flavor: flavorSupported { inherit os variant flavor; }) flavors)
         ) variants
       else if supportsVariant then
         builtins.map (

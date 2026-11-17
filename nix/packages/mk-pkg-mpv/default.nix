@@ -3,7 +3,20 @@
   os ? import ../../utils/default/os.nix,
   arch ? pkgs.callPackage ../../utils/default/arch.nix { },
   variant ? import ../../utils/default/variant.nix,
+  flavor ? import ../../utils/default/flavor.nix,
 }:
+
+# Only the `hdr` flavor changes mpv; every other flavor builds the same mpv
+if flavor == (import ../../utils/constants/flavors.nix).hdr then
+  import ./hdr.nix {
+    inherit
+      pkgs
+      os
+      arch
+      variant
+      ;
+  }
+else
 
 let
   name = "mpv";

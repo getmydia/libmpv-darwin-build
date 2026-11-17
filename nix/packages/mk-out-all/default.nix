@@ -10,6 +10,7 @@ let
   flavors = import ../../utils/default/flavors.nix;
   variants = import ../../utils/default/variants.nix;
   targets = import ../mk-out-archive/targets.nix;
+  flavorSupported = import ../../utils/flavor/supported.nix;
   archives = builtins.concatMap (
     target:
     builtins.concatMap (
@@ -31,7 +32,15 @@ let
             flavor
             ;
         }
-      ) flavors
+      ) (
+        builtins.filter (
+          flavor:
+          flavorSupported {
+            inherit (target) os;
+            inherit variant flavor;
+          }
+        ) flavors
+      )
     ) variants
   ) targets;
 in
