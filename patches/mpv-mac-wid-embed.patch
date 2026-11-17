@@ -1,0 +1,108 @@
+diff --git a/video/out/mac_common.swift b/video/out/mac_common.swift
+index e2e9dd1..a7b0aae 100644
+--- a/video/out/mac_common.swift
++++ b/video/out/mac_common.swift
+@@ -19,6 +19,8 @@ import Cocoa
+ 
+ class MacCommon: Common {
+     @objc var layer: MetalLayer?
++    var embedHost: NSView?
++    var embedObservers: [NSObjectProtocol] = []
+ 
+     var presentation: Presentation?
+     var timer: PreciseTimer?
+@@ -53,7 +55,36 @@ class MacCommon: Common {
+                 exit(1)
+             }
+ 
+-            if window == nil {
++            if embedHost == nil && option.vo.WinID > 0 {
++                // --wid is the address of a host NSView: add mpv's view inside it
++                // instead of creating a window.
++                initView(vo, layer)
++                let host = Unmanaged<NSView>.fromOpaque(UnsafeRawPointer(bitPattern: Int(option.vo.WinID))!).takeUnretainedValue()
++                embedHost = host
++                if let view = self.view {
++                    view.frame = host.bounds
++                    view.autoresizingMask = [.width, .height]
++                    view.postsFrameChangedNotifications = true
++                    host.addSubview(view, positioned: .below, relativeTo: nil)
++                    layer.contentsScale = host.window?.backingScaleFactor ?? 2
++                    embedObservers.append(NotificationCenter.default.addObserver(
++                        forName: NSView.frameDidChangeNotification, object: view, queue: .main) { [weak self] _ in
++                        self?.windowDidResize()
++                    })
++                    embedObservers.append(NotificationCenter.default.addObserver(
++                        forName: NSWindow.didChangeBackingPropertiesNotification, object: nil, queue: .main) { [weak self] n in
++                        guard let self = self, (n.object as? NSWindow) === self.embedHost?.window else { return }
++                        self.windowDidChangeBackingProperties()
++                    })
++                    embedObservers.append(NotificationCenter.default.addObserver(
++                        forName: NSWindow.didChangeScreenNotification, object: nil, queue: .main) { [weak self] n in
++                        guard let self = self, (n.object as? NSWindow) === self.embedHost?.window else { return }
++                        self.updateDisplaylink()
++                        self.windowDidChangeScreenProfile()
++                    })
++                }
++                log.verbose("Embedded into host NSView \(host)")
++            } else if window == nil && embedHost == nil {
+                 initView(vo, layer)
+                 initWindow(vo, previousActiveApp)
+                 initWindowState()
+@@ -84,6 +115,9 @@ class MacCommon: Common {
+         DispatchQueue.main.sync {
+             window?.delegate = nil
+             window?.close()
++            embedObservers.forEach { NotificationCenter.default.removeObserver($0) }
++            embedObservers = []
++            embedHost = nil
+ 
+             uninitCommon()
+         }
+@@ -109,7 +143,20 @@ class MacCommon: Common {
+         info.pointee.last_queue_display_time = next?.time ?? -1
+     }
+ 
++    // The drawable size in pixels, of the window or of the embedded view.
++    @objc func surfacePixelSize() -> CGSize {
++        if let window = window { return window.framePixel.size }
++        let get = { () -> CGSize in
++            guard let view = self.view else { return .zero }
++            return view.convertToBacking(view.bounds).size
++        }
++        return Thread.isMainThread ? get() : DispatchQueue.main.sync(execute: get)
++    }
++
+     @objc func isVisible() -> Bool {
++        if let host = embedHost {
++            return host.window?.occlusionState.contains(.visible) ?? true
++        }
+         return window?.occlusionState.contains(.visible) ?? false ||
+                option.vo.force_render ||
+                needsInitialDraw
+@@ -175,7 +222,7 @@ class MacCommon: Common {
+     }
+ 
+     override func windowDidChangeBackingProperties() {
+-        layer?.contentsScale = window?.backingScaleFactor ?? 1
++        layer?.contentsScale = window?.backingScaleFactor ?? embedHost?.window?.backingScaleFactor ?? 1
+         windowDidResize()
+     }
+ 
+diff --git a/video/out/vulkan/context_mac.m b/video/out/vulkan/context_mac.m
+index 559e361..68fab80 100644
+--- a/video/out/vulkan/context_mac.m
++++ b/video/out/vulkan/context_mac.m
+@@ -114,10 +114,10 @@ static bool resize(struct ra_ctx *ctx)
+ {
+     struct priv *p = ctx->priv;
+ 
+-    if (!p->vo_mac.window) {
++    CGSize size = [p->vo_mac surfacePixelSize];
++    if (size.width < 1 || size.height < 1) {
+         return false;
+     }
+-    CGSize size = p->vo_mac.window.framePixel.size;
+ 
+     return ra_vk_ctx_resize(ctx, (int)size.width, (int)size.height);
+ }

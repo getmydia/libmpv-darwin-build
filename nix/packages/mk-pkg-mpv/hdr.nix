@@ -74,9 +74,20 @@ let
     name = "${pname}-source-${version}";
     inherit (packageLock) url sha256;
   };
+  # mpv-mac-wid-embed.patch: with `--wid` set to the address of an NSView, the
+  # mac video output (`gpu-context=macvk`) adds its view inside that host view
+  # instead of opening a window. smoke/run.sh checks it.
+  patchedSource = pkgs.runCommand "${pname}-patched-source-${variant}-${flavor}-${version}" { } ''
+    cp -r ${src} src
+    chmod -R u+w src
+    cd src
+    patch -p1 <${../../../patches/mpv-mac-wid-embed.patch}
+    cd -
+    cp -r src $out
+  '';
   fixedSource = callPackage ../../utils/patch-shebangs/default.nix {
     name = "${pname}-fixed-source-${variant}-${flavor}-${version}";
-    inherit src;
+    src = patchedSource;
     inherit nativeBuildInputs;
   };
 in
