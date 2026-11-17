@@ -9,7 +9,8 @@
 
 let
   name = "libplacebo";
-  packageLock = (import ../../../packages.lock.nix).${name};
+  packagesLock = import ../../../packages.lock.nix;
+  packageLock = packagesLock.${name};
   inherit (packageLock) version;
   hdr = import ../../utils/constants/hdr.nix;
 
@@ -24,21 +25,36 @@ let
   shaderc = callPackage ../mk-pkg-shaderc/default.nix { };
 
   # libplacebo generates code with jinja2 (its own copy is a git submodule,
-  # missing from the release tarball)
-  python = pkgs.python3.withPackages (ps: [ ps.jinja2 ]);
+  # missing from the release tarball). It goes on PYTHONPATH because meson
+  # runs the bare interpreter, not a `withPackages` wrapper.
+  python = pkgs.python3;
+  pythonPath = python.pkgs.makePythonPath [ python.pkgs.jinja2 ];
 
   pname = import ../../utils/name/package.nix name;
   src = callPackage ../../utils/fetch-tarball/default.nix {
     name = "${pname}-source-${version}";
     inherit (packageLock) url sha256;
   };
+  fastFloat = callPackage ../../utils/fetch-tarball/default.nix {
+    name = "${pname}-fast-float-source-${packagesLock.libplaceboFastFloat.version}";
+    inherit (packagesLock.libplaceboFastFloat) url sha256;
+  };
+  # put back the fast_float submodule, required on Apple (libc++ has no
+  # floating point std::from_chars)
+  patchedSource = pkgs.runCommand "${pname}-patched-source-${version}" { } ''
+    cp -r ${src} src
+    chmod -R u+w src
+    rm -rf src/3rdparty/fast_float
+    cp -r ${fastFloat} src/3rdparty/fast_float
+    cp -r src $out
+  '';
 in
 
 pkgs.stdenvNoCC.mkDerivation {
   name = "${pname}-${os}-${arch}-${version}";
   pname = pname;
   inherit version;
-  inherit src;
+  src = patchedSource;
   dontUnpack = true;
   enableParallelBuilding = true;
   nativeBuildInputs = [
@@ -53,6 +69,8 @@ pkgs.stdenvNoCC.mkDerivation {
     shaderc
   ];
   configurePhase = ''
+    export PYTHONPATH=${pythonPath}
+
     meson setup build $src \
       --native-file ${nativeFile} \
       --cross-file ${crossFile} \

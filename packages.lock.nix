@@ -50,6 +50,12 @@
     url = "https://github.com/haasn/libplacebo/archive/refs/tags/v7.387.0.tar.gz";
     sha256 = "f9e62d3774a9c4cfd198ec3abaa88294aaade2e31c04d5ab02bcf4abc98b1df5";
   };
+  # The fast_float submodule of libplacebo v7.387.0 (missing from its tarball)
+  libplaceboFastFloat = {
+    version = "8.2.2";
+    url = "https://github.com/fastfloat/fast_float/archive/97b54ca9e75f5303507699d27c6b4f4efe4641a1.tar.gz";
+    sha256 = "2b132274539286e41f37857cac22aa8441d21bd86d55de825a3342b149f66801";
+  };
   libpng = {
     version = "1.6.40";
     url = "https://github.com/pnggroup/libpng/archive/v1.6.40.tar.gz";
