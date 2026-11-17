@@ -141,17 +141,9 @@ jobs:
             result/*.tar.gz
             result/*.zip
 
-      # Plays an HDR10 clip with mpv embedded in a host NSView (`wid`), set at
-      # runtime as media_kit does, and checks gpu-next, the PQ target, that mpv
-      # opened no window of its own and the EDR Metal layer. See smoke/probe.swift.
-      - name: Smoke test
-        continue-on-error: false
-        timeout-minutes: 20
-        env:
-          XCODE_PATH: ${{ steps.xcode_path.outputs.xcode_path }}
-        run: |
-          export DEVELOPER_DIR="${XCODE_PATH}/Contents/Developer"
-          smoke/run.sh result/libmpv-xcframeworks_*_macos-universal-video-hdr.tar.gz
+      # The smoke test (smoke/run.sh) is a manual release step: on these
+      # runners mpv crashes in Apple's paravirtual GPU driver on the first
+      # frame. See "Releasing" in the README.
 
       - name: Release
         uses: softprops/action-gh-release@v3

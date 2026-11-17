@@ -33,6 +33,29 @@ $ nix develop -c make TARGET=mk-out-archive-xcframeworks-macos-universal-video-h
 
 This fork's CI builds only that target.
 
+mpv in this flavor carries `patches/mpv-mac-wid-embed.patch`: with `--wid`
+set to the address of an `NSView`, the mac video output (`gpu-context=macvk`)
+adds its view inside that host view instead of opening a window.
+
+### Releasing
+
+CI cannot run the smoke test: on GitHub's macOS runners mpv crashes in Apple's
+paravirtual GPU driver (`AppleParavirtGPUMetalIOGPUFamily`, under MoltenVK's
+`vkBindImageMemory`) on the first frame. So it is a manual release step:
+
+1. Push the branch and let CI build it.
+2. On a Mac with an Apple GPU and an EDR-capable screen, run the smoke test
+   against that build's artifact:
+
+   ```shell
+   $ gh run download <run-id> -n libmpv-macos-universal-video-hdr -D artifact
+   $ smoke/run.sh artifact/libmpv-xcframeworks_develop_macos-universal-video-hdr.tar.gz
+   ```
+
+   It must print `PASS`. `smoke/make-levels.sh` generates the HDR10 clip; it
+   needs ffmpeg with zscale and libx265, or Nix.
+3. Tag the commit (`vX.Y.Z-mydia.N`). The tag's CI run publishes the release.
+
 ## Setup
 
 - Nix: [nixos.org/download/#nix-install-macos](https://nixos.org/download/#nix-install-macos)
