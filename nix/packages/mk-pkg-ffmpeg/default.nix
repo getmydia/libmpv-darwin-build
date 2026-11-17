@@ -38,13 +38,21 @@ let
     name = "${pname}-source-${version}";
     inherit (packageLock) url sha256;
   };
-  patchedSource = pkgs.runCommand "${pname}-patched-source-${version}" { } ''
+  patchedSource = pkgs.runCommand "${pname}-patched-source-${version}" { } (
+    ''
     cp -r ${src} src
     export src=$PWD/src
     chmod -R 777 $src
 
     cd $src
+  ''
+  # The vp9_videotoolbox decoder this patch adds no longer compiles with
+  # FFmpeg 8 (FF_CODEC_CAP_ALLOCATE_PROGRESS is gone), and the `default`
+  # components, which `hdr` uses, never enable it.
+  + pkgs.lib.optionalString (flavor != flavors.hdr) ''
     patch -p1 <${../../../patches/ffmpeg-fix-vp9-hwaccel.patch}
+  ''
+  + ''
     patch -p1 <${../../../patches/ffmpeg-fix-hls-mp4-seek.patch}
     patch -p1 <${../../../patches/ffmpeg-fix-ios-hdr-texture.patch}
     patch -p1 <${../../../patches/ffmpeg-fix-dash-base-url-escape.patch}
@@ -54,7 +62,8 @@ let
     cp ${./meson.options} $src/meson.options
 
     cp -r $src $out
-  '';
+  ''
+  );
 in
 
 pkgs.stdenvNoCC.mkDerivation {
