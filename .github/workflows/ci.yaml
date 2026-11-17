@@ -98,13 +98,30 @@ jobs:
             lipo -archs "${BIN}"
             otool -L "${BIN}"
             # dependency lines are indented, per-arch headers are not
-            if otool -L "${BIN}" | grep -E '^\s' | grep -v -E '^\s+(/usr/lib/|/System/Library/|@rpath/[A-Za-z0-9_]+\.framework/)'; then
+            if otool -L "${BIN}" | grep -E '^[[:space:]]' | grep -v -E '^[[:space:]]+(/usr/lib/|/System/Library/|@rpath/[A-Za-z0-9_]+\.framework/)'; then
               echo "unexpected dependency in ${BIN}"
               exit 1
             fi
           done
 
           MPV=$(echo Mpv.xcframework/macos-*/Mpv.framework/Versions/A/Mpv)
+          # positive control: the dependency filter above really sees Mpv's
+          # dependency lines, so it cannot pass vacuously
+          DEPS=$(otool -L "${MPV}" | grep -c -E '^[[:space:]]+@rpath/(Placebo|MoltenVK|Avcodec)\.framework/' || true)
+          if [ "${DEPS}" -lt 3 ]; then
+            echo "dependency lines of Mpv not matched (${DEPS})"
+            exit 1
+          fi
+
+          # VP9 must not use VideoToolbox (FFmpeg ticket #9599), as in
+          # video-default, and the other VideoToolbox hwaccels must be on
+          AVCODEC=$(echo Avcodec.xcframework/macos-*/Avcodec.framework/Versions/A/Avcodec)
+          strings "${AVCODEC}" | grep -o -- '--enable-hwaccel=[a-z0-9_]*' | sort -u
+          strings "${AVCODEC}" | grep -q -- '--enable-hwaccel=hevc_videotoolbox'
+          if strings "${AVCODEC}" | grep 'vp9_videotoolbox'; then
+            echo "Avcodec enables the vp9_videotoolbox hwaccel"
+            exit 1
+          fi
           if otool -L "${MPV}" | grep -i vulkan; then
             echo "Mpv links a Vulkan loader"
             exit 1

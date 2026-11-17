@@ -258,6 +258,15 @@ video_default_options = [
     '--enable-hwaccel=mpeg1_videotoolbox',
     '--enable-hwaccel=mpeg2_videotoolbox',
     '--enable-hwaccel=mpeg4_videotoolbox',
+]
+
+# Added for `default` only. In `default`, ffmpeg-fix-vp9-hwaccel.patch moves
+# this hwaccel off the regular `vp9` decoder (onto a separate decoder that is
+# never enabled), so the `vp9` decoder there decodes in software. That avoids
+# the VideoToolbox VP9 hang on Intel Macs (FFmpeg ticket #9599). `hdr` builds
+# FFmpeg 8 without that patch, so it must not enable the hwaccel at all, which
+# gives it the same effective behavior.
+video_default_vp9_hwaccel_options = [
     '--enable-hwaccel=vp9_videotoolbox',
 ]
 
@@ -315,6 +324,9 @@ if flavor == 'default' or flavor == 'hdr'
     options += audio_default_options
     if variant == 'video'
         options += video_default_options
+        if flavor == 'default'
+            options += video_default_vp9_hwaccel_options
+        endif
     endif
 elif flavor == 'full'
     options += audio_full_options

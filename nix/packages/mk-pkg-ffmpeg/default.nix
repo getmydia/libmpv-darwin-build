@@ -46,9 +46,13 @@ let
 
     cd $src
   ''
-  # The vp9_videotoolbox decoder this patch adds no longer compiles with
-  # FFmpeg 8 (FF_CODEC_CAP_ALLOCATE_PROGRESS is gone), and the `default`
-  # components, which `hdr` uses, never enable it.
+  # This patch moves the VideoToolbox hwaccel off the regular `vp9` decoder
+  # onto a separate vp9_videotoolbox decoder that the `default` components
+  # never enable, so VP9 decodes in software (FFmpeg ticket #9599, the Intel
+  # Mac hang). Its new decoder no longer compiles with FFmpeg 8
+  # (FF_CODEC_CAP_ALLOCATE_PROGRESS is gone). `hdr` therefore skips the patch
+  # and does not enable the vp9_videotoolbox hwaccel (see meson.build), which
+  # keeps the same behavior.
   + pkgs.lib.optionalString (flavor != flavors.hdr) ''
     patch -p1 <${../../../patches/ffmpeg-fix-vp9-hwaccel.patch}
   ''
