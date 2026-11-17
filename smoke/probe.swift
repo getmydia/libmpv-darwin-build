@@ -89,6 +89,13 @@ host.autoresizingMask = [.width, .height]
 host.wantsLayer = true
 host.layer?.backgroundColor = NSColor.black.cgColor
 window.contentView!.addSubview(host)
+// On the screen with the most EDR headroom: mpv only targets PQ on one.
+if let screen = NSScreen.screens.max(by: {
+    $0.maximumPotentialExtendedDynamicRangeColorComponentValue
+        < $1.maximumPotentialExtendedDynamicRangeColorComponentValue
+}) {
+    window.setFrameOrigin(NSPoint(x: screen.visibleFrame.minX + 100, y: screen.visibleFrame.minY + 100))
+}
 window.makeKeyAndOrderFront(nil)
 app.activate(ignoringOtherApps: true)
 

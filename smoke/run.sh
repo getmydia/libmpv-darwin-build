@@ -46,4 +46,36 @@ xcrun swiftc -O \
   -Xlinker -rpath -Xlinker "$work/Frameworks" \
   -o "$work/probe" "$here/probe.swift"
 
-"$work/probe" "$clip"
+status=0
+"$work/probe" "$clip" || status=$?
+
+# A crash (signal) leaves a report behind; print its faulting thread.
+if [ "$status" -gt 128 ]; then
+  reports=~/Library/Logs/DiagnosticReports
+  for _ in $(seq 30); do
+    report=$(ls -t "$reports"/probe-*.ips 2>/dev/null | head -1 || true)
+    [ -n "$report" ] && [ "$report" -nt "$work/probe" ] && break
+    report=
+    sleep 1
+  done
+  if [ -n "$report" ]; then
+    echo "== crash report $report"
+    python3 -I - "$report" <<'PY'
+import json, sys
+text = open(sys.argv[1]).read()
+body = json.loads(text[text.index("\n") + 1:])
+images = body.get("usedImages", [])
+print("exception:", json.dumps(body.get("exception")), json.dumps(body.get("termination", {}).get("indicator")))
+for i, thread in enumerate(body.get("threads", [])):
+    if not thread.get("triggered"):
+        continue
+    print(f"thread {i} {thread.get('name') or thread.get('queue') or ''}")
+    for frame in thread.get("frames", [])[:40]:
+        image = images[frame["imageIndex"]].get("name", "?") if frame.get("imageIndex", -1) < len(images) else "?"
+        print(f"  {image:24} {frame.get('symbol', hex(frame.get('imageOffset', 0)))}+{frame.get('symbolLocation', '')}")
+PY
+  else
+    echo "== no crash report found in $reports"
+  fi
+fi
+exit "$status"

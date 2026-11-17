@@ -59,7 +59,7 @@ index e2e9dd1..a7b0aae 100644
  
              uninitCommon()
          }
-@@ -109,7 +143,20 @@ class MacCommon: Common {
+@@ -109,7 +143,24 @@ class MacCommon: Common {
          info.pointee.last_queue_display_time = next?.time ?? -1
      }
  
@@ -74,13 +74,17 @@ index e2e9dd1..a7b0aae 100644
 +    }
 +
      @objc func isVisible() -> Bool {
++        // Like mpv's own window: draw while the host window is visible, and
++        // always the first frame, even behind other windows or a locked screen.
 +        if let host = embedHost {
-+            return host.window?.occlusionState.contains(.visible) ?? true
++            return host.window?.occlusionState.contains(.visible) ?? true ||
++                   option.vo.force_render ||
++                   needsInitialDraw
 +        }
          return window?.occlusionState.contains(.visible) ?? false ||
                 option.vo.force_render ||
                 needsInitialDraw
-@@ -175,7 +222,7 @@ class MacCommon: Common {
+@@ -175,7 +226,7 @@ class MacCommon: Common {
      }
  
      override func windowDidChangeBackingProperties() {
