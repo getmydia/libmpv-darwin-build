@@ -18,6 +18,8 @@ let
   crossFile = callPackage ../../utils/cross-file/default.nix {
     minVersion = hdr.macosMinVersion;
   };
+  # meson runs `lipo` from $PATH on the libraries pkg-config names
+  xctoolchainLipo = callPackage ../../utils/xctoolchain/lipo.nix { };
   moltenvk = callPackage ../mk-pkg-moltenvk/default.nix { };
   shaderc = callPackage ../mk-pkg-shaderc/default.nix { };
 
@@ -44,15 +46,13 @@ pkgs.stdenvNoCC.mkDerivation {
     pkgs.ninja
     pkgs.pkg-config
     python
+    xctoolchainLipo
   ];
   buildInputs = [
     moltenvk
     shaderc
   ];
   configurePhase = ''
-    # meson's python module fails with an OSError when $HOME is not writable
-    export HOME=$TMPDIR
-
     meson setup build $src \
       --native-file ${nativeFile} \
       --cross-file ${crossFile} \
