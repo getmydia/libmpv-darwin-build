@@ -6,7 +6,7 @@
 # SMOKE_SLEEP_DISPLAYS=1 passes --sleep-displays to the probe (see probe.swift).
 #
 # With no clip, smoke/make-levels.sh generates levels_hdr10.mp4 (ffmpeg with
-# zscale and libx265, or Nix). Needs Xcode (swiftc), a GUI session and a real
+# zscale and libx265, or Nix). Needs swiftc (the Command Line Tools), a GUI session and a real
 # Metal device. Exits with the probe's status.
 set -euo pipefail
 

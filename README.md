@@ -44,20 +44,25 @@ paravirtual GPU driver (`AppleParavirtGPUMetalIOGPUFamily`, under MoltenVK's
 `vkBindImageMemory`) on the first frame. So it is a manual release step:
 
 1. Push the branch and let CI build it.
-2. On a Mac with an Apple GPU and an EDR-capable screen, run the smoke test
-   against that build's artifact:
+2. On a Mac with an Apple GPU, an EDR-capable display and the Xcode Command
+   Line Tools (full Xcode is not needed), logged in to a GUI session, run the
+   smoke test against that build's artifact:
 
    ```shell
    $ gh run download <run-id> -n libmpv-macos-universal-video-hdr -D artifact
    $ smoke/run.sh artifact/libmpv-xcframeworks_develop_macos-universal-video-hdr.tar.gz
+   $ SMOKE_SLEEP_DISPLAYS=1 smoke/run.sh artifact/libmpv-xcframeworks_develop_macos-universal-video-hdr.tar.gz
    ```
 
-   It must print `PASS`, also with `SMOKE_SLEEP_DISPLAYS=1`, which puts the
-   displays to sleep before the video output starts (the display link then
-   never ticks, and mpv must not block). `run.sh` has `smoke/make-levels.sh --hdr10-only`
-   generate the HDR10 clip, which needs ffmpeg with zscale and libx265 (it
-   falls back to `nix shell nixpkgs#ffmpeg-full`). The full fixture set also
-   needs `dovi_tool`.
+   Both must print `PASS`. The second puts the displays to sleep before the
+   video output starts, so the display link never ticks, and mpv must not
+   block. Keep the displays awake for the first (`caffeinate -d`).
+
+   Without a clip argument, `run.sh` has `smoke/make-levels.sh --hdr10-only`
+   generate the HDR10 clip. That needs ffmpeg with zscale and libx265, or Nix
+   (it falls back to `nix shell nixpkgs#ffmpeg-full`); otherwise pass a clip
+   made elsewhere as the second argument. The full fixture set also needs
+   `dovi_tool`.
 3. Tag the commit (`vX.Y.Z-mydia.N`). The tag's CI run publishes the release.
 
 ## Setup
