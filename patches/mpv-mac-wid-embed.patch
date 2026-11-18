@@ -9,9 +9,15 @@ link, ICC profile, display name and HiDPI scale follow the host window's
 screen. An embedded view draws while its window is visible, and always the
 first frame, as mpv's own window does.
 
-One change outside --wid: context_mac.m's resize now returns false when the
-drawable is under 1 px in either dimension, where it used to call
-ra_vk_ctx_resize(0, 0) for a zero-sized window.
+Two changes outside --wid, to mpv's own window too:
+- context_mac.m's resize returns false when the drawable is under 1 px in
+  either dimension, where it used to call ra_vk_ctx_resize(0, 0) for a
+  zero-sized window.
+- swapBuffer's wait for the display link is bounded to three vsync periods
+  (at least 0.1 s), then carries on as if a vsync arrived. A display link
+  that never ticks (every display asleep when the VO started) used to block
+  the VO thread forever, and with it every caller waiting on the core. The
+  render timer default is unchanged.
 
 --- a/video/out/mac_common.swift
 +++ b/video/out/mac_common.swift
@@ -74,7 +80,7 @@ ra_vk_ctx_resize(0, 0) for a zero-sized window.
                  initView(vo, layer)
                  initWindow(vo, previousActiveApp)
                  initWindowState()
-@@ -84,11 +127,47 @@
+@@ -84,22 +127,77 @@
          DispatchQueue.main.sync {
              window?.delegate = nil
              window?.close()
@@ -121,8 +127,39 @@ ra_vk_ctx_resize(0, 0) for a zero-sized window.
 +
      @objc func swapBuffer() {
          if option.mac.macos_render_timer > RENDER_TIMER_SYSTEM {
++            // Bounded: a display link that never ticks (every display asleep
++            // when it was created, or a stopped link) would otherwise block
++            // the VO thread, and with it every caller waiting on the core.
++            // After a few vsync periods, carry on as if one arrived.
++            let deadline = Date(timeIntervalSinceNow: swapTimeout())
              swapLock.lock()
-@@ -110,6 +189,13 @@
+             while swapTime < 1 {
+-                swapLock.wait()
++                if !swapLock.wait(until: deadline) {
++                    break
++                }
+             }
+             swapTime = 0
+             swapLock.unlock()
+         }
+     }
+ 
++    // Three vsync periods of the display link's screen, at least 0.1 s.
++    // Reads the nominal period directly: currentFps() logs on every call.
++    func swapTimeout() -> TimeInterval {
++        if let link = self.link {
++            let period = CVDisplayLinkGetNominalOutputVideoRefreshPeriod(link)
++            if (period.flags & Int32(CVTimeFlags.isIndefinite.rawValue)) == 0 && period.timeValue > 0 {
++                return max(3 * Double(period.timeValue) / Double(period.timeScale), 0.1)
++            }
++        }
++        return 0.1
++    }
++
+     @objc func fillVsync(info: UnsafeMutablePointer<vo_vsync_info>) {
+         if option.mac.macos_render_timer != RENDER_TIMER_PRESENTATION_FEEDBACK { return }
+ 
+@@ -110,6 +208,13 @@
      }
  
      @objc func isVisible() -> Bool {
@@ -136,7 +173,7 @@ ra_vk_ctx_resize(0, 0) for a zero-sized window.
          return window?.occlusionState.contains(.visible) ?? false ||
                 option.vo.force_render ||
                 needsInitialDraw
-@@ -158,7 +244,15 @@
+@@ -158,7 +263,15 @@
      }
  
      override func updateDisplaylink() {
@@ -153,7 +190,7 @@ ra_vk_ctx_resize(0, 0) for a zero-sized window.
          timer?.updatePolicy(periodSeconds: 1 / currentFps())
      }
  
-@@ -175,7 +269,11 @@
+@@ -175,7 +288,11 @@
      }
  
      override func windowDidChangeBackingProperties() {

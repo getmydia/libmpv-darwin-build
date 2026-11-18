@@ -52,7 +52,9 @@ paravirtual GPU driver (`AppleParavirtGPUMetalIOGPUFamily`, under MoltenVK's
    $ smoke/run.sh artifact/libmpv-xcframeworks_develop_macos-universal-video-hdr.tar.gz
    ```
 
-   It must print `PASS`. `run.sh` has `smoke/make-levels.sh --hdr10-only`
+   It must print `PASS`, also with `SMOKE_SLEEP_DISPLAYS=1`, which puts the
+   displays to sleep before the video output starts (the display link then
+   never ticks, and mpv must not block). `run.sh` has `smoke/make-levels.sh --hdr10-only`
    generate the HDR10 clip, which needs ffmpeg with zscale and libx265 (it
    falls back to `nix shell nixpkgs#ffmpeg-full`). The full fixture set also
    needs `dovi_tool`.

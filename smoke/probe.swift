@@ -1,7 +1,11 @@
 // Smoke probe for the video-hdr variant: mpv's macOS video output embedded in
 // a host NSView passed as `wid` (patches/mpv-mac-wid-embed.patch).
 //
-//   probe <clip>
+//   probe <clip> [--sleep-displays]
+//
+// --sleep-displays puts every display to sleep (`pmset displaysleepnow`)
+// before the video output starts, so mpv's display link never ticks. The
+// probe must still pass: mpv may only pace badly, never block.
 //
 // It follows the order a host app uses at runtime (media_kit creates and
 // initializes mpv with `vid=no` long before a view exists):
@@ -39,11 +43,13 @@ import QuartzCore
 
 setvbuf(stdout, nil, _IOLBF, 0)
 
-guard CommandLine.arguments.count == 2 else {
-    FileHandle.standardError.write("usage: probe <clip>\n".data(using: .utf8)!)
+let arguments = Array(CommandLine.arguments.dropFirst())
+let sleepDisplays = arguments.count == 2 && arguments[1] == "--sleep-displays"
+guard arguments.count == 1 || sleepDisplays else {
+    FileHandle.standardError.write("usage: probe <clip> [--sleep-displays]\n".data(using: .utf8)!)
     exit(2)
 }
-let clip = CommandLine.arguments[1]
+let clip = arguments[0]
 
 func fail(_ message: String) -> Never {
     print("FAIL: \(message)")
@@ -113,6 +119,15 @@ let mpvQueue = DispatchQueue(label: "probe.mpv")
 
 // 3. Attach at runtime, off the main thread.
 mpvQueue.async {
+    if sleepDisplays {
+        let pmset = Process()
+        pmset.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        pmset.arguments = ["displaysleepnow"]
+        do { try pmset.run() } catch { fail("pmset displaysleepnow: \(error)") }
+        pmset.waitUntilExit()
+        sleep(4)
+        print("displays asleep: \(CGDisplayIsAsleep(CGMainDisplayID()) != 0)")
+    }
     setProperty("wid", String(hostPointer))
     setProperty("vo", "gpu-next")
     setProperty("gpu-api", "vulkan")
@@ -250,7 +265,8 @@ func finish(windows: [String], layers: [(String, Bool)], screens: [String], host
     exit(0)
 }
 
-DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+// 5 s after attaching (which waits 4 s for the displays to sleep first)
+DispatchQueue.main.asyncAfter(deadline: .now() + (sleepDisplays ? 9 : 5)) {
     let (windows, layers, hostScreen) = MainActor.assumeIsolated {
         (onScreenWindows(), metalLayers(under: host), window.screen.map(mpvScreenName) ?? "none")
     }

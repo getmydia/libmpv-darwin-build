@@ -3,6 +3,8 @@
 #
 #   smoke/run.sh <video-hdr tarball | extracted xcframeworks dir> [clip]
 #
+# SMOKE_SLEEP_DISPLAYS=1 passes --sleep-displays to the probe (see probe.swift).
+#
 # With no clip, smoke/make-levels.sh generates levels_hdr10.mp4 (ffmpeg with
 # zscale and libx265, or Nix). Needs Xcode (swiftc), a GUI session and a real
 # Metal device. Exits with the probe's status.
@@ -48,7 +50,9 @@ xcrun swiftc -O \
   -o "$work/probe" "$here/probe.swift"
 
 status=0
-"$work/probe" "$clip" || status=$?
+probe_args=("$clip")
+[ -n "${SMOKE_SLEEP_DISPLAYS:-}" ] && probe_args+=(--sleep-displays)
+"$work/probe" "${probe_args[@]}" || status=$?
 
 # A crash (signal) leaves a report behind; print its faulting thread.
 if [ "$status" -gt 128 ]; then
