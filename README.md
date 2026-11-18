@@ -52,8 +52,10 @@ paravirtual GPU driver (`AppleParavirtGPUMetalIOGPUFamily`, under MoltenVK's
    $ smoke/run.sh artifact/libmpv-xcframeworks_develop_macos-universal-video-hdr.tar.gz
    ```
 
-   It must print `PASS`. `smoke/make-levels.sh` generates the HDR10 clip; it
-   needs ffmpeg with zscale and libx265, or Nix.
+   It must print `PASS`. `run.sh` has `smoke/make-levels.sh --hdr10-only`
+   generate the HDR10 clip, which needs ffmpeg with zscale and libx265 (it
+   falls back to `nix shell nixpkgs#ffmpeg-full`). The full fixture set also
+   needs `dovi_tool`.
 3. Tag the commit (`vX.Y.Z-mydia.N`). The tag's CI run publishes the release.
 
 ## Setup

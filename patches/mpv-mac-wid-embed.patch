@@ -1,24 +1,44 @@
-diff --git a/video/out/mac_common.swift b/video/out/mac_common.swift
-index e2e9dd1..a7b0aae 100644
+mpv: embed the macOS video output (gpu-context=macvk) in a host NSView
+
+With --wid set to the address of an NSView, MacCommon adds mpv's view as an
+autoresizing subview of that host view instead of creating a window. It
+follows the view's frame and the host window's backing-properties and screen
+changes. The view's pixel size and screen are cached on the main thread for
+the VO thread, so resizing never waits on the main thread, and the display
+link, ICC profile, display name and HiDPI scale follow the host window's
+screen. An embedded view draws while its window is visible, and always the
+first frame, as mpv's own window does.
+
+One change outside --wid: context_mac.m's resize now returns false when the
+drawable is under 1 px in either dimension, where it used to call
+ra_vk_ctx_resize(0, 0) for a zero-sized window.
+
 --- a/video/out/mac_common.swift
 +++ b/video/out/mac_common.swift
-@@ -19,6 +19,8 @@ import Cocoa
+@@ -19,6 +19,15 @@
  
  class MacCommon: Common {
      @objc var layer: MetalLayer?
++    // --wid: the host NSView mpv's view is embedded in, set on the main thread.
 +    var embedHost: NSView?
 +    var embedObservers: [NSObjectProtocol] = []
++    // The embedded view's drawable size in pixels and its screen. Written on
++    // the main thread, read on the VO thread, so that resizing and screen
++    // queries never wait on the main thread.
++    let embedLock = NSLock()
++    var embedPixelSize: CGSize = .zero
++    var embedScreen: NSScreen?
  
      var presentation: Presentation?
      var timer: PreciseTimer?
-@@ -53,7 +55,36 @@ class MacCommon: Common {
+@@ -53,7 +62,41 @@
                  exit(1)
              }
  
 -            if window == nil {
 +            if embedHost == nil && option.vo.WinID > 0 {
-+                // --wid is the address of a host NSView: add mpv's view inside it
-+                // instead of creating a window.
++                // --wid is the address of a host NSView: add mpv's view inside
++                // it instead of creating a window.
 +                initView(vo, layer)
 +                let host = Unmanaged<NSView>.fromOpaque(UnsafeRawPointer(bitPattern: Int(option.vo.WinID))!).takeUnretainedValue()
 +                embedHost = host
@@ -27,9 +47,10 @@ index e2e9dd1..a7b0aae 100644
 +                    view.autoresizingMask = [.width, .height]
 +                    view.postsFrameChangedNotifications = true
 +                    host.addSubview(view, positioned: .below, relativeTo: nil)
-+                    layer.contentsScale = host.window?.backingScaleFactor ?? 2
 +                    embedObservers.append(NotificationCenter.default.addObserver(
 +                        forName: NSView.frameDidChangeNotification, object: view, queue: .main) { [weak self] _ in
++                        // also catches a host that joins a window later
++                        self?.updateEmbedGeometry()
 +                        self?.windowDidResize()
 +                    })
 +                    embedObservers.append(NotificationCenter.default.addObserver(
@@ -40,39 +61,70 @@ index e2e9dd1..a7b0aae 100644
 +                    embedObservers.append(NotificationCenter.default.addObserver(
 +                        forName: NSWindow.didChangeScreenNotification, object: nil, queue: .main) { [weak self] n in
 +                        guard let self = self, (n.object as? NSWindow) === self.embedHost?.window else { return }
++                        self.updateEmbedGeometry()
 +                        self.updateDisplaylink()
 +                        self.windowDidChangeScreenProfile()
 +                    })
 +                }
++                updateEmbedGeometry()
++                // the display link started on the main screen; follow the host's
++                updateDisplaylink()
 +                log.verbose("Embedded into host NSView \(host)")
 +            } else if window == nil && embedHost == nil {
                  initView(vo, layer)
                  initWindow(vo, previousActiveApp)
                  initWindowState()
-@@ -84,6 +115,9 @@ class MacCommon: Common {
+@@ -84,11 +127,47 @@
          DispatchQueue.main.sync {
              window?.delegate = nil
              window?.close()
 +            embedObservers.forEach { NotificationCenter.default.removeObserver($0) }
 +            embedObservers = []
 +            embedHost = nil
++            embedLock.withLock {
++                embedPixelSize = .zero
++                embedScreen = nil
++            }
  
              uninitCommon()
          }
-@@ -109,7 +143,24 @@ class MacCommon: Common {
-         info.pointee.last_queue_display_time = next?.time ?? -1
      }
  
-+    // The drawable size in pixels, of the window or of the embedded view.
-+    @objc func surfacePixelSize() -> CGSize {
-+        if let window = window { return window.framePixel.size }
-+        let get = { () -> CGSize in
-+            guard let view = self.view else { return .zero }
-+            return view.convertToBacking(view.bounds).size
++    // Main thread only: caches the embedded view's pixel size and screen for
++    // the VO thread, and keeps the layer's scale in step with the host.
++    func updateEmbedGeometry() {
++        guard let host = embedHost, let view = self.view else { return }
++        layer?.contentsScale = host.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
++        let size = view.convertToBacking(view.bounds).size
++        let screen = host.window?.screen
++        embedLock.withLock {
++            embedPixelSize = size
++            embedScreen = screen
 +        }
-+        return Thread.isMainThread ? get() : DispatchQueue.main.sync(execute: get)
 +    }
 +
++    // The drawable size in pixels, of the window or of the embedded view.
++    // Never waits on the main thread: it runs on the VO thread while the core
++    // may be blocked on it.
++    @objc func surfacePixelSize() -> CGSize {
++        if let window = window { return window.framePixel.size }
++        return embedLock.withLock { embedPixelSize }
++    }
++
++    // When embedded, the screen is the host window's, not the main screen.
++    override func getCurrentScreen() -> NSScreen? {
++        if window == nil, let screen = embedLock.withLock({ embedScreen }) {
++            return screen
++        }
++        return super.getCurrentScreen()
++    }
++
+     @objc func swapBuffer() {
+         if option.mac.macos_render_timer > RENDER_TIMER_SYSTEM {
+             swapLock.lock()
+@@ -110,6 +189,13 @@
+     }
+ 
      @objc func isVisible() -> Bool {
 +        // Like mpv's own window: draw while the host window is visible, and
 +        // always the first frame, even behind other windows or a locked screen.
@@ -84,20 +136,39 @@ index e2e9dd1..a7b0aae 100644
          return window?.occlusionState.contains(.visible) ?? false ||
                 option.vo.force_render ||
                 needsInitialDraw
-@@ -175,7 +226,7 @@ class MacCommon: Common {
+@@ -158,7 +244,15 @@
+     }
+ 
+     override func updateDisplaylink() {
+-        super.updateDisplaylink()
++        // Common's version follows `window?.screen`, which is nil when embedded
++        if window == nil, let screen = embedLock.withLock({ embedScreen }), let link = self.link {
++            CVDisplayLinkSetCurrentCGDisplay(link, screen.displayID)
++            queue.asyncAfter(deadline: DispatchTime.now() + 0.1) {
++                self.flagEvents(VO_EVENT_WIN_STATE)
++            }
++        } else {
++            super.updateDisplaylink()
++        }
+         timer?.updatePolicy(periodSeconds: 1 / currentFps())
+     }
+ 
+@@ -175,7 +269,11 @@
      }
  
      override func windowDidChangeBackingProperties() {
 -        layer?.contentsScale = window?.backingScaleFactor ?? 1
-+        layer?.contentsScale = window?.backingScaleFactor ?? embedHost?.window?.backingScaleFactor ?? 1
++        if embedHost != nil {
++            updateEmbedGeometry()
++        } else {
++            layer?.contentsScale = window?.backingScaleFactor ?? 1
++        }
          windowDidResize()
      }
  
-diff --git a/video/out/vulkan/context_mac.m b/video/out/vulkan/context_mac.m
-index 559e361..68fab80 100644
 --- a/video/out/vulkan/context_mac.m
 +++ b/video/out/vulkan/context_mac.m
-@@ -114,10 +114,10 @@ static bool resize(struct ra_ctx *ctx)
+@@ -114,10 +114,10 @@
  {
      struct priv *p = ctx->priv;
  

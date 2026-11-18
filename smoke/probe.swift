@@ -16,7 +16,9 @@
 //   - `current-vo` is `gpu-next`;
 //   - `video-target-params/gamma` is `pq`;
 //   - the process has exactly one on-screen window (mpv opened none of its own);
-//   - the host view holds a CAMetalLayer with wantsExtendedDynamicRangeContent.
+//   - the host view holds a CAMetalLayer with wantsExtendedDynamicRangeContent;
+//   - `display-names` names the host window's screen (mpv follows the host's
+//     screen, not the main one), and prints `display-fps`.
 //
 // Teardown, also on the background queue: `vid=no`, wait (at most 3 s) for
 // `current-vo` to empty, then mpv_terminate_destroy. mpv's mac output does
@@ -51,7 +53,9 @@ DispatchQueue.global().asyncAfter(deadline: .now() + 60) {
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 
-guard let mpv = mpv_create() else { fail("mpv_create returned NULL") }
+guard let handle = mpv_create() else { fail("mpv_create returned NULL") }
+// Only ever used from one queue at a time; libmpv handles are thread-safe.
+nonisolated(unsafe) let mpv = handle
 
 func check(_ what: String, _ code: Int32) {
     if code < 0 {
@@ -67,7 +71,7 @@ func setProperty(_ name: String, _ value: String) {
     check("set property \(name)=\(value)", mpv_set_property_string(mpv, name, value))
 }
 
-func property(_ name: String) -> String? {
+@Sendable func property(_ name: String) -> String? {
     guard let c = mpv_get_property_string(mpv, name) else { return nil }
     defer { mpv_free(c) }
     return String(cString: c)
@@ -147,10 +151,20 @@ mpvQueue.async {
     return (view.layer.map(walk) ?? []) + view.subviews.flatMap { metalLayers(under: $0) }
 }
 
+/// A screen's name as mpv's `display-names` reports it (NSScreen.uniqueName in
+/// mpv's osdep/mac/swift_extensions.swift): the localized name without a
+/// trailing " (n)", then the display's serial number in parentheses.
+func mpvScreenName(_ screen: NSScreen) -> String {
+    let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? 0
+    let name = screen.localizedName.replacingOccurrences(
+        of: " \\(\\d+\\)$", with: "", options: .regularExpression)
+    return "\(name) (\(CGDisplaySerialNumber(id)))"
+}
+
 /// Runs `body` on the mpv queue and waits for it, or nil after `seconds`.
 /// A stuck mpv core must fail the probe, not hang it.
 final class Box<T>: @unchecked Sendable { var value: T? }
-func onMpvQueue<T>(within seconds: Double, _ body: @escaping () -> T) -> T? {
+@Sendable func onMpvQueue<T>(within seconds: Double, _ body: @escaping () -> T) -> T? {
     let done = DispatchSemaphore(value: 0)
     let box = Box<T>()
     mpvQueue.async {
@@ -160,7 +174,7 @@ func onMpvQueue<T>(within seconds: Double, _ body: @escaping () -> T) -> T? {
     return done.wait(timeout: .now() + seconds) == .success ? box.value : nil
 }
 
-func finish(windows: [String], layers: [(String, Bool)], screens: [String]) -> Never {
+func finish(windows: [String], layers: [(String, Bool)], screens: [String], hostScreen: String) -> Never {
     var failures: [String] = []
 
     print("on-screen windows: \(windows.count)")
@@ -177,13 +191,22 @@ func finish(windows: [String], layers: [(String, Bool)], screens: [String]) -> N
     }
 
     let props = onMpvQueue(within: 3) {
-        (property("current-vo") ?? "", property("video-target-params/gamma") ?? "")
+        ["current-vo", "video-target-params/gamma", "display-names", "display-fps"].map {
+            property($0) ?? ""
+        }
     }
-    if let (vo, gamma) = props {
+    if let props {
+        let (vo, gamma, displayNames, displayFps) = (props[0], props[1], props[2], props[3])
         print("current-vo=\(vo)")
         print("video-target-params/gamma=\(gamma)")
+        print("display-names=\(displayNames)")
+        print("display-fps=\(displayFps)")
+        print("host window screen=\(hostScreen)")
         if vo != "gpu-next" { failures.append("current-vo is '\(vo)', expected 'gpu-next'") }
         if gamma != "pq" { failures.append("video-target-params/gamma is '\(gamma)', expected 'pq'") }
+        if displayNames != hostScreen {
+            failures.append("display-names is '\(displayNames)', expected the host window's screen '\(hostScreen)'")
+        }
 
         // Teardown: drop the video output, wait for it to go, then destroy.
         let teardown = onMpvQueue(within: 10) { () -> String? in
@@ -218,15 +241,15 @@ func finish(windows: [String], layers: [(String, Bool)], screens: [String]) -> N
 }
 
 DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-    let (windows, layers) = MainActor.assumeIsolated {
-        (onScreenWindows(), metalLayers(under: host))
+    let (windows, layers, hostScreen) = MainActor.assumeIsolated {
+        (onScreenWindows(), metalLayers(under: host), window.screen.map(mpvScreenName) ?? "none")
     }
     let screens = NSScreen.screens.map {
         "\($0.localizedName) edr=\($0.maximumExtendedDynamicRangeColorComponentValue)"
             + " potential=\($0.maximumPotentialExtendedDynamicRangeColorComponentValue)"
     }
     DispatchQueue.global().async {
-        finish(windows: windows, layers: layers, screens: screens)
+        finish(windows: windows, layers: layers, screens: screens, hostScreen: hostScreen)
     }
 }
 

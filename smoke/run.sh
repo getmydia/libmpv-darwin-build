@@ -3,8 +3,9 @@
 #
 #   smoke/run.sh <video-hdr tarball | extracted xcframeworks dir> [clip]
 #
-# With no clip, smoke/make-levels.sh generates levels_hdr10.mp4. Needs Xcode
-# (swiftc), a GUI session and a Metal device. Exits with the probe's status.
+# With no clip, smoke/make-levels.sh generates levels_hdr10.mp4 (ffmpeg with
+# zscale and libx265, or Nix). Needs Xcode (swiftc), a GUI session and a real
+# Metal device. Exits with the probe's status.
 set -euo pipefail
 
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
@@ -37,7 +38,7 @@ test -d "$work/Frameworks/Mpv.framework" || {
 if [ $# -eq 2 ]; then
   clip=$2
 else
-  "$here/make-levels.sh" "$work/clips"
+  "$here/make-levels.sh" "$work/clips" --hdr10-only
   clip=$work/clips/levels_hdr10.mp4
 fi
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Generate calibrated HDR test clips for judging HDR output by eye and by probes.
 #
-#   smoke/make-levels.sh <outdir>
+#   smoke/make-levels.sh <outdir> [--hdr10-only]
 #
-# Writes levels_hdr10.mp4, levels_hlg.mp4, levels_dv81.mp4 and sdr_testsrc.mp4.
+# Writes levels_hdr10.mp4, levels_hlg.mp4, levels_dv81.mp4 and sdr_testsrc.mp4,
+# or only levels_hdr10.mp4 with --hdr10-only (which needs no dovi_tool).
 # The HDR10 and Dolby Vision clips carry three flat luma patches at 203, 1000
 # and 4000 nits (10-bit limited luma 573, 722, 855) over a testsrc2 picture whose
 # SDR white sits at 203 nits. HLG has no absolute nits, so it has no patches.
@@ -12,27 +13,34 @@
 # A copy of mydia's scripts/generate-hdr-fixtures.sh; keep the two in step.
 set -euo pipefail
 
-if [ $# -ne 1 ]; then
-  echo "usage: $0 <outdir>" >&2
+if [ $# -lt 1 ] || [ $# -gt 2 ] || { [ $# -eq 2 ] && [ "$2" != --hdr10-only ]; }; then
+  echo "usage: $0 <outdir> [--hdr10-only]" >&2
   exit 2
 fi
 
 outdir=$1
+hdr10_only=${2:-}
 mkdir -p "$outdir"
 outdir=$(cd "$outdir" && pwd)
 
 FRAMES=288 # 12 s at 24 fps
 
-# Re-exec inside nix when the tools are missing.
-if [ -z "${HDRFX_IN_NIX:-}" ] && ! { command -v ffmpeg >/dev/null && command -v dovi_tool >/dev/null; }; then
+# Re-exec inside nix when the tools are missing (ffmpeg needs zscale and libx265).
+have_tools() {
+  command -v ffmpeg >/dev/null &&
+    ffmpeg -nostdin -hide_banner -filters 2>/dev/null | grep -qw zscale &&
+    ffmpeg -nostdin -hide_banner -encoders 2>/dev/null | grep -qw libx265 &&
+    { [ -n "$hdr10_only" ] || command -v dovi_tool >/dev/null; }
+}
+if [ -z "${HDRFX_IN_NIX:-}" ] && ! have_tools; then
   exec env HDRFX_IN_NIX=1 nix shell nixpkgs#dovi-tool nixpkgs#ffmpeg-full \
-    --command bash "$0" "$outdir"
+    --command bash "$0" "$@"
 fi
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-ff() { ffmpeg -hide_banner -loglevel error -y "$@"; }
+ff() { ffmpeg -nostdin -hide_banner -loglevel error -y "$@"; }
 
 # testsrc2 (bt709) converted to a PQ or HLG bt2020 10-bit limited-range picture.
 src() {
@@ -49,6 +57,11 @@ COMMON=(-c:v libx265 -preset fast -crf 16 -pix_fmt yuv420p10le -color_primaries 
 ff -f lavfi -i "$(src smpte2084),$PATCHES" "${COMMON[@]}" -color_trc smpte2084 \
   -x265-params "hdr10=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(40000000,1):max-cll=4000,203:log-level=error" \
   "$outdir/levels_hdr10.mp4"
+
+if [ -n "$hdr10_only" ]; then
+  echo "wrote levels_hdr10.mp4 to $outdir"
+  exit 0
+fi
 
 # HLG, no patches
 ff -f lavfi -i "$(src arib-std-b67)" "${COMMON[@]}" -color_trc arib-std-b67 \
