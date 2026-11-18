@@ -20,6 +20,11 @@
 //   - `display-names` names the host window's screen (mpv follows the host's
 //     screen, not the main one), and prints `display-fps`.
 //
+// Then it resizes the window 40 times, reading `display-names` on the main
+// thread after each resize (fails on a deadlock: the VO thread must never
+// wait on the main thread while resizing), and checks that `osd-width` x
+// `osd-height` then match the host view's size in pixels.
+//
 // Teardown, also on the background queue: `vid=no`, wait (at most 3 s) for
 // `current-vo` to empty, then mpv_terminate_destroy. mpv's mac output does
 // DispatchQueue.main.sync while it is created and destroyed, so none of these
@@ -174,7 +179,7 @@ final class Box<T>: @unchecked Sendable { var value: T? }
     return done.wait(timeout: .now() + seconds) == .success ? box.value : nil
 }
 
-func finish(windows: [String], layers: [(String, Bool)], screens: [String], hostScreen: String) -> Never {
+func finish(windows: [String], layers: [(String, Bool)], screens: [String], hostScreen: String, hostPixels: String) -> Never {
     var failures: [String] = []
 
     print("on-screen windows: \(windows.count)")
@@ -191,7 +196,7 @@ func finish(windows: [String], layers: [(String, Bool)], screens: [String], host
     }
 
     let props = onMpvQueue(within: 3) {
-        ["current-vo", "video-target-params/gamma", "display-names", "display-fps"].map {
+        ["current-vo", "video-target-params/gamma", "display-names", "display-fps", "osd-width", "osd-height"].map {
             property($0) ?? ""
         }
     }
@@ -202,6 +207,11 @@ func finish(windows: [String], layers: [(String, Bool)], screens: [String], host
         print("display-names=\(displayNames)")
         print("display-fps=\(displayFps)")
         print("host window screen=\(hostScreen)")
+        let osd = "\(props[4])x\(props[5])"
+        print("osd size=\(osd), host view pixels=\(hostPixels)")
+        if osd != hostPixels {
+            failures.append("osd size is \(osd), expected the host view's \(hostPixels) pixels")
+        }
         if vo != "gpu-next" { failures.append("current-vo is '\(vo)', expected 'gpu-next'") }
         if gamma != "pq" { failures.append("video-target-params/gamma is '\(gamma)', expected 'pq'") }
         if displayNames != hostScreen {
@@ -248,8 +258,56 @@ DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
         "\($0.localizedName) edr=\($0.maximumExtendedDynamicRangeColorComponentValue)"
             + " potential=\($0.maximumPotentialExtendedDynamicRangeColorComponentValue)"
     }
-    DispatchQueue.global().async {
-        finish(windows: windows, layers: layers, screens: screens, hostScreen: hostScreen)
+    resizeStress(step: 0) {
+        // let the last resize reach mpv before reading its size
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let hostPixels = MainActor.assumeIsolated {
+                let size = host.convertToBacking(host.bounds).size
+                return "\(Int(size.width))x\(Int(size.height))"
+            }
+            DispatchQueue.global().async {
+                finish(windows: windows, layers: layers, screens: screens,
+                       hostScreen: hostScreen, hostPixels: hostPixels)
+            }
+        }
+    }
+}
+
+// A host app may read properties synchronously on the main thread while its
+// window resizes. `display-names` is answered by the VO thread, so if the VO
+// thread waits on the main thread while resizing, this can deadlock. The read
+// runs in a frame-change observer added after mpv's, so it comes right after
+// mpv has flagged the resize to its VO thread; another follows 10 ms later.
+let resizeSteps = 40
+let resizeDeadline = DispatchWorkItem {
+    fail("deadlock: a main-thread read of display-names during host resizes did not return within 20 s")
+}
+nonisolated(unsafe) var resizeObserver: NSObjectProtocol?
+func resizeStress(step: Int, then done: @escaping () -> Void) {
+    if step == 0 {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 20, execute: resizeDeadline)
+        resizeObserver = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification, object: nil, queue: .main
+        ) { note in
+            if MainActor.assumeIsolated({ (note.object as? NSView)?.superview === host }) {
+                _ = property("display-names")
+            }
+        }
+    }
+    if step == resizeSteps {
+        resizeDeadline.cancel()
+        resizeObserver.map { NotificationCenter.default.removeObserver($0) }
+        print("resize stress: \(resizeSteps) resizes with main-thread reads, ok")
+        done()
+        return
+    }
+    MainActor.assumeIsolated {
+        let small = step % 2 == 1
+        window.setContentSize(NSSize(width: small ? 640 : 960, height: small ? 360 : 540))
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+        _ = property("display-names")
+        resizeStress(step: step + 1, then: done)
     }
 }
 
